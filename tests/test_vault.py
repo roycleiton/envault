@@ -74,3 +74,11 @@ def test_export_returns_all_decrypted(vault):
 
 def test_empty_vault_list_keys(vault):
     assert vault.list_keys() == []
+
+
+def test_set_overwrites_existing_key(vault):
+    """Setting an existing key should update its value, not duplicate it."""
+    vault.set("MY_KEY", "original", PASSPHRASE)
+    vault.set("MY_KEY", "updated", PASSPHRASE)
+    assert vault.get("MY_KEY", PASSPHRASE) == "updated"
+    assert vault.list_keys().count("MY_KEY") == 1

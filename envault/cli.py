@@ -1,13 +1,12 @@
-"""CLI entry point for envault."""
+"""Entry-point: build the argument parser and dispatch subcommands."""
 
-import sys
+from __future__ import annotations
+
 import argparse
-from pathlib import Path
+import sys
 
+from envault import cli_export, cli_rotate, cli_import, cli_diff, cli_tags, cli_snapshot
 from envault.vault import Vault, VaultError
-
-
-DEFAULT_VAULT_PATH = Path(".envault")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -15,76 +14,87 @@ def build_parser() -> argparse.ArgumentParser:
         prog="envault",
         description="Securely manage and sync environment variables.",
     )
-    parser.add_argument(
-        "--vault",
-        default=str(DEFAULT_VAULT_PATH),
-        metavar="PATH",
-        help="Path to the vault file (default: .envault)",
-    )
-    parser.add_argument(
-        "--passphrase",
-        required=True,
-        metavar="PASSPHRASE",
-        help="Passphrase used to encrypt/decrypt the vault",
-    )
+    parser.add_argument("--vault", default=".envault", help="Path to vault file")
+    parser.add_argument("--passphrase", required=True, help="Vault passphrase")
 
-    subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
-    subparsers.required = True
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
     # set
-    set_parser = subparsers.add_parser("set", help="Store an environment variable")
-    set_parser.add_argument("key", help="Variable name")
-    set_parser.add_argument("value", help="Variable value")
+    p_set = subparsers.add_parser("set", help="Store a secret")
+    p_set.add_argument("key")
+    p_set.add_argument("value")
+    p_set.set_defaults(func=_cmd_set)
 
     # get
-    get_parser = subparsers.add_parser("get", help="Retrieve an environment variable")
-    get_parser.add_argument("key", help="Variable name")
+    p_get = subparsers.add_parser("get", help="Retrieve a secret")
+    p_get.add_argument("key")
+    p_get.set_defaults(func=_cmd_get)
 
     # delete
-    del_parser = subparsers.add_parser("delete", help="Delete an environment variable")
-    del_parser.add_argument("key", help="Variable name")
+    p_del = subparsers.add_parser("delete", help="Remove a secret")
+    p_del.add_argument("key")
+    p_del.set_defaults(func=_cmd_delete)
 
     # list
-    subparsers.add_parser("list", help="List all stored variable names")
+    p_list = subparsers.add_parser("list", help="List all secret keys")
+    p_list.set_defaults(func=_cmd_list)
+
+    # plugin subcommands
+    cli_export.register(subparsers)
+    cli_rotate.register(subparsers)
+    cli_import.register(subparsers)
+    cli_diff.register(subparsers)
+    cli_tags.register(subparsers)
+    cli_snapshot.register(subparsers)
 
     return parser
 
 
-def main(argv=None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-
-    vault = Vault(path=Path(args.vault), passphrase=args.passphrase)
-
+def _cmd_set(args: argparse.Namespace) -> int:
     try:
-        if args.command == "set":
-            vault.set(args.key, args.value)
-            print(f"Stored '{args.key}'.")
-
-        elif args.command == "get":
-            value = vault.get(args.key)
-            if value is None:
-                print(f"Key '{args.key}' not found.", file=sys.stderr)
-                return 1
-            print(value)
-
-        elif args.command == "delete":
-            vault.delete(args.key)
-            print(f"Deleted '{args.key}'.")
-
-        elif args.command == "list":
-            keys = vault.list_keys()
-            if keys:
-                print("\n".join(sorted(keys)))
-            else:
-                print("(vault is empty)")
-
+        vault = Vault(args.vault, args.passphrase)
+        vault.set(args.key, args.value)
+        print(f"Set '{args.key}'.")
+        return 0
     except VaultError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    return 0
+
+def _cmd_get(args: argparse.Namespace) -> int:
+    try:
+        vault = Vault(args.vault, args.passphrase)
+        print(vault.get(args.key))
+        return 0
+    except VaultError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
 
-if __name__ == "__main__":  # pragma: no cover
-    sys.exit(main())
+def _cmd_delete(args: argparse.Namespace) -> int:
+    try:
+        vault = Vault(args.vault, args.passphrase)
+        vault.delete(args.key)
+        print(f"Deleted '{args.key}'.")
+        return 0
+    except VaultError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+def _cmd_list(args: argparse.Namespace) -> int:
+    try:
+        vault = Vault(args.vault, args.passphrase)
+        keys = vault.keys()
+        for key in sorted(keys):
+            print(key)
+        return 0
+    except VaultError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    sys.exit(args.func(args))

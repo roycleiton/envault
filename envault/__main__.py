@@ -1,26 +1,30 @@
-"""Entry point: python -m envault."""
-
+"""Entry-point for ``python -m envault``."""
 from __future__ import annotations
 
-import argparse
 import sys
 
 from envault.cli import build_parser
-from envault.cli_export import register as register_export
-from envault.cli_rotate import register as register_rotate
-from envault.cli_import import register as register_import
-from envault.cli_diff import register as register_diff
+import envault.cli_export as cli_export
+import envault.cli_rotate as cli_rotate
+import envault.cli_import as cli_import
+import envault.cli_diff as cli_diff
+import envault.cli_tags as cli_tags
+import envault.cli_snapshot as cli_snapshot
+import envault.cli_ttl as cli_ttl
 
 
-def main() -> int:
-    parser = build_parser()
-    subparsers = parser._subparsers._group_actions[0]  # type: ignore[attr-defined]  # noqa: SLF001
-    register_export(subparsers)
-    register_rotate(subparsers)
-    register_import(subparsers)
-    register_diff(subparsers)
+def main(argv: list[str] | None = None) -> int:
+    parser, subparsers, parent = build_parser()
 
-    args = parser.parse_args()
+    cli_export.register(subparsers, parent)
+    cli_rotate.register(subparsers, parent)
+    cli_import.register(subparsers, parent)
+    cli_diff.register(subparsers, parent)
+    cli_tags.register(subparsers, parent)
+    cli_snapshot.register(subparsers, parent)
+    cli_ttl.register(subparsers, parent)
+
+    args = parser.parse_args(argv)
     if not hasattr(args, "func"):
         parser.print_help()
         return 1

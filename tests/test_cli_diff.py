@@ -38,6 +38,7 @@ def json_file(tmp_path: pathlib.Path) -> pathlib.Path:
 
 
 def run(*args):
+    """Run the envault CLI as a subprocess and return the completed process."""
     return subprocess.run(
         [sys.executable, "-m", "envault", *args],
         capture_output=True,
@@ -85,3 +86,10 @@ def test_diff_wrong_passphrase_returns_nonzero(vault_path, dotenv_file):
 def test_diff_json_file(vault_path, json_file):
     result = run("diff", str(vault_path), str(json_file), "--passphrase", PASS)
     assert "DELTA" in result.stdout
+
+
+def test_diff_missing_env_file_returns_nonzero(vault_path, tmp_path):
+    """Passing a non-existent env file should exit with a non-zero return code."""
+    missing = tmp_path / "nonexistent.env"
+    result = run("diff", str(vault_path), str(missing), "--passphrase", PASS)
+    assert result.returncode != 0

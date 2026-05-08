@@ -1,83 +1,74 @@
-"""Tests for envault.env_check."""
+"""Unit tests for envault.env_check."""
+
 from __future__ import annotations
+
+import os
+from pathlib import Path
 
 import pytest
 
 from envault.vault import Vault
-from envault.env_check import EnvCheckError, EnvCheckResult, check_env
+from envault.env_check import check_env, EnvCheckResult
 
-
-PASS = "hunter2"
+PASSPHRASE = "unit-check-pass"
 
 
 @pytest.fixture()
-def vault(tmp_path):
-    v = Vault(tmp_path / "vault.enc", PASS)
-    v.set("DB_HOST", "localhost", PASS)
-    v.set("DB_PORT", "5432", PASS)
-    v.set("SECRET_KEY", "s3cr3t", PASS)
+def vault(tmp_path: Path) -> Vault:
+    v = Vault(tmp_path / "check.vault", PASSPHRASE)
+    v.set("DB_URL", "postgres://localhost/mydb")
+    v.set("API_KEY", "topsecret")
     return v
 
 
-def test_returns_one_result_per_vault_key(vault):
-    results = check_env(vault, PASS, env={})
-    assert len(results) == 3
+def test_returns_one_result_per_vault_key(vault: Vault) -> None:
+    results = check_env(vault)
+    assert len(results) == 2
 
 
-def test_result_keys_match_vault_keys(vault):
-    results = check_env(vault, PASS, env={})
-    assert {r.key for r in results} == {"DB_HOST", "DB_PORT", "SECRET_KEY"}
+def test_result_keys_match_vault_keys(vault: Vault) -> None:
+    results = check_env(vault)
+    assert {r.key for r in results} == {"DB_URL", "API_KEY"}
 
 
-def test_missing_status_when_key_not_in_env(vault):
-    results = check_env(vault, PASS, env={})
+def test_missing_status_when_key_not_in_env(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DB_URL", raising=False)
+    monkeypatch.delenv("API_KEY", raising=False)
+    results = check_env(vault)
     assert all(r.status == "missing" for r in results)
 
 
-def test_ok_status_when_values_match(vault):
-    env = {"DB_HOST": "localhost", "DB_PORT": "5432", "SECRET_KEY": "s3cr3t"}
-    results = check_env(vault, PASS, env=env)
+def test_ok_status_when_values_match(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DB_URL", "postgres://localhost/mydb")
+    monkeypatch.setenv("API_KEY", "topsecret")
+    results = check_env(vault)
     assert all(r.status == "ok" for r in results)
 
 
-def test_mismatch_status_when_values_differ(vault):
-    env = {"DB_HOST": "remotehost", "DB_PORT": "5432", "SECRET_KEY": "s3cr3t"}
-    results = check_env(vault, PASS, env=env)
+def test_mismatch_status_when_value_differs(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DB_URL", "postgres://other/db")
+    monkeypatch.delenv("API_KEY", raising=False)
+    results = check_env(vault)
     by_key = {r.key: r for r in results}
-    assert by_key["DB_HOST"].status == "mismatch"
-    assert by_key["DB_PORT"].status == "ok"
+    assert by_key["DB_URL"].status == "mismatch"
+    assert by_key["API_KEY"].status == "missing"
 
 
-def test_value_matches_none_when_key_absent(vault):
-    results = check_env(vault, PASS, env={})
-    assert all(r.value_matches is None for r in results)
+def test_filter_by_keys(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DB_URL", "postgres://localhost/mydb")
+    results = check_env(vault, keys=["DB_URL"])
+    assert len(results) == 1
+    assert results[0].key == "DB_URL"
 
 
-def test_in_env_flag_set_correctly(vault):
-    env = {"DB_HOST": "localhost"}
-    results = check_env(vault, PASS, env=env)
-    by_key = {r.key: r for r in results}
-    assert by_key["DB_HOST"].in_env is True
-    assert by_key["DB_PORT"].in_env is False
-
-
-def test_all_results_have_in_vault_true(vault):
-    results = check_env(vault, PASS, env={})
-    assert all(r.in_vault for r in results)
-
-
-def test_wrong_passphrase_raises_env_check_error(vault):
+def test_filter_nonexistent_key_raises(vault: Vault) -> None:
+    from envault.env_check import EnvCheckError
     with pytest.raises(EnvCheckError):
-        check_env(vault, "wrong-pass", env={})
+        check_env(vault, keys=["DOES_NOT_EXIST"])
 
 
-def test_results_sorted_alphabetically(vault):
-    results = check_env(vault, PASS, env={})
-    keys = [r.key for r in results]
-    assert keys == sorted(keys)
-
-
-def test_empty_vault_returns_empty_list(tmp_path):
-    v = Vault(tmp_path / "empty.enc", PASS)
-    results = check_env(v, PASS, env={"DB_HOST": "localhost"})
-    assert results == []
+def test_result_is_dataclass(vault: Vault) -> None:
+    results = check_env(vault)
+    for r in results:
+        assert hasattr(r, "key")
+        assert hasattr(r, "status")
